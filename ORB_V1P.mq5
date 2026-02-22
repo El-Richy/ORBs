@@ -4,56 +4,84 @@
 //|          Compatible: NAS100, US500, US30, JPN225                 |
 //+------------------------------------------------------------------+
 #property copyright "ORB Strategy EA"
-#property version   "2.02"
+#property version   "2.03"
 #property strict
 
 #include <Trade\Trade.mqh>
 
-//+------------------------------------------------------------------+
-//|Inputs, parámetros variables                                      |
-//+------------------------------------------------------------------+
-input string   separador1 = "----------- Tipo de riesgo -----------";      // ----------- Separador -----------
-input bool     RiesgoDinamico      = true;                                 // true=dinámico, false=lote fijo
-//--------------------------------------------------------------------
-input string   separador2 = "----------- Horario -----------";             // ----------- Separador -----------
-input string   StartOps            = "16:40";                              // Hora en la que se inician a poner entradas
-input string   EndOps              = "17:30";                              // Hora en la que se dejan de tomar entradas
-input string   CloseOps            = "22:50";                              // Hora del cierre forzoso de posiciones
-//--------------------------------------------------------------------
-input string   separador3 = "----------- Sesión -----------";              // ----------- Separador -----------
-input string   StartSession        = "16:20";                              // Hora inicio del rango
-input string   EndSession          = "16:40";                              // Hora fin del rango
-//--------------------------------------------------------------------
-input string   separador4 = "----------- Gestión de riesgo -----------";   // ----------- Separador -----------
-input double   MultiplierTP        = 3.0;                                  // Multiplicador RR para TP
-input double   MultiplierSL        = 1.0;                                  // Multiplicador del tamaño del SL (1.0 = 1x ORB_SIZE)
-input double   RiskPercent         = 1.0;                                  // % de balance en riesgo por trade
-input int      MaxTradesPerDay     = 3;                                    // Máx operaciones por día
-input double   FixedLot            = 0.10;                                 // Lote fijo (solo si RiesgoDinamico = false)
-//--------------------------------------------------------------------
-input string   separador5 = "----------- Indicadores -----------";         // ----------- Separador -----------
+//=======================================================
+// ENUMS
+//=======================================================
+enum TRAILING_MODE
+  {
+   TRAILING_R_FIJO,    // Trailing fijo (0.5R)
+   TRAILING_ATR        // Trailing dinámico basado en ATR
+  };
 
-input double   ATR_MinFactor       = 0.20;                                 // Factor mínimo ATR para validar rango
-input int      ATR_Period          = 14;                                   // Período ATR en D1
-input int      EMA_Fast_Period     = 20;                                   // Período EMA rápida
-input int      EMA_Slow_Period     = 50;                                   // Período EMA lenta
-input double   SL_Buffer_Points    = 3.0;                                  // Buffer adicional en points para SL
-input int      Volume_MA_Period    = 10;                                   // Período SMA de volumen
+//=======================================================
+// INPUTS CONFIGURABLES
+//=======================================================
+
+input string   separador1  = "----------- Tipo de riesgo -----------";       // ----------- Separador -----------
+input bool     RiesgoDinamico   = true;                                       // true=dinámico, false=lote fijo
+input double   FixedLot         = 0.10;                                       // Lote fijo (solo si RiesgoDinamico = false)
+//--------------------------------------------------------------------
+input string   separador2  = "----------- Horario -----------";               // ----------- Separador -----------
+input string   StartOps         = "16:40";                                    // Hora inicio de entradas
+input string   EndOps           = "17:30";                                    // Hora fin de entradas
+input string   CloseOps         = "22:50";                                    // Hora cierre forzoso
+//--------------------------------------------------------------------
+input string   separador3  = "----------- Sesión ORB -----------";            // ----------- Separador -----------
+input string   StartSession     = "16:20";                                    // Hora inicio del rango
+input string   EndSession       = "16:40";                                    // Hora fin del rango
+//--------------------------------------------------------------------
+input string   separador4  = "----------- Gestión de riesgo -----------";     // ----------- Separador -----------
+input double   MultiplierTP     = 3.0;                                        // Multiplicador RR para TP
+input double   MultiplierSL     = 1.0;                                        // Multiplicador SL (1.0 = extremo opuesto del rango)
+input double   RiskPercent      = 1.0;                                        // % de balance en riesgo por trade
+input int      MaxTradesPerDay  = 3;                                          // Máx operaciones por día
+input double   SL_Buffer_Points = 3.0;                                        // Buffer adicional en points para SL
+input bool     UseSpreadFilter  = true;                                       // Filtro de spread máximo
+input double   MaxSpreadPoints  = 5.0;                                        // Spread máximo permitido (en points)
+//--------------------------------------------------------------------
+input string   separador5  = "----------- Indicadores -----------";           // ----------- Separador -----------
+input double   ATR_MinFactor    = 0.20;                                       // Factor mínimo ATR para validar rango
+input int      ATR_Period       = 14;                                         // Período ATR
+input int      EMA_Fast_Period  = 20;                                         // Período EMA rápida
+input int      EMA_Slow_Period  = 50;                                         // Período EMA lenta
+input int      Volume_MA_Period = 10;                                         // Período SMA de volumen
 //--------------------------------------------------------------------
 input string   separador5b = "------- Activar / Desactivar filtros -------"; // ----------- Separador -----------
-input bool     UseFilterATR        = true;                                 // Filtro ATR: ORB_SIZE >= ATR * factor
-input bool     UseFilterVWAP       = true;                                 // Filtro VWAP: precio del lado correcto del VWAP
-input bool     UseFilterEMA        = true;                                 // Filtro EMA: cruce EMA rápida > lenta
-input bool     UseFilterVela       = true;                                 // Filtro C3: vela debe ser alcista/bajista
-input bool     UseFilterVolumen    = true;                                 // Filtro C9: volumen > media de volumen
-input bool     UseFilterC2         = true;                                 // Filtro C2: cierre previo dentro del rango
+input bool     UseFilterATR     = true;                                       // Filtro ATR: ORB_SIZE >= ATR * factor
+input bool     UseFilterVWAP    = true;                                       // Filtro VWAP: precio del lado correcto
+input bool     UseFilterEMA     = true;                                       // Filtro EMA: cruce rápida/lenta
+input bool     UseFilterVela    = true;                                       // Filtro C3: vela alcista/bajista
+input bool     UseFilterVolumen = true;                                       // Filtro C9: volumen > media
+input bool     UseFilterC2      = true;                                       // Filtro C2: cierre previo dentro del rango
 //--------------------------------------------------------------------
-input string   separador6 = "----------- Gestión de operación -----------"; // ----------- Separador -----------
-input bool     UseBreakEven        = true;                                  // Activar Break-Even
-input bool     UseTrailing         = true;                                  // Activar Trailing Stop
+input string   separador5c = "------- Filtro de noticias -------";           // ----------- Separador -----------
+input bool     UseNewsFilter    = true;                                       // Evitar entradas cerca de noticias
+input int      NewsAvoidMins    = 30;                                         // Minutos a evitar antes/después de noticia
+input string   NewsTimes        = "08:30,14:00,20:30";                       // Horarios de noticias (HH:MM separados por coma)
 //--------------------------------------------------------------------
-input string   separador7 = "----------- Identificación -----------";       // ----------- Separador -----------
-input int      MagicNumber         = 100001;                                // Magic Number del EA
+input string   separador5d = "------- Filtro días de semana -------";        // ----------- Separador -----------
+input bool     TradeMonday      = true;                                       // Operar los lunes
+input bool     TradeTuesday     = true;                                       // Operar los martes
+input bool     TradeWednesday   = true;                                       // Operar los miércoles
+input bool     TradeThursday    = true;                                       // Operar los jueves
+input bool     TradeFriday      = true;                                       // Operar los viernes
+//--------------------------------------------------------------------
+input string   separador6  = "----------- Gestión de operación -----------";  // ----------- Separador -----------
+input bool     UseBreakEven         = true;                                   // Activar Break-Even
+input bool     UseTrailing          = true;                                   // Activar Trailing Stop
+input TRAILING_MODE TrailingMode    = TRAILING_R_FIJO;                        // Modo trailing: fijo (0.5R) o ATR dinámico
+input double   TrailingATRFactor    = 1.0;                                    // Factor ATR para trailing (solo si modo ATR)
+input bool     UseDrawdownProtection= true;                                   // Protección de drawdown máximo
+input double   MaxDDPercent         = 20.0;                                   // DD máximo permitido (% del balance)
+input bool     UseOrbLines          = true;                                   // Dibujar líneas ORB_HIGH/LOW en gráfico
+//--------------------------------------------------------------------
+input string   separador7  = "----------- Identificación -----------";        // ----------- Separador -----------
+input int      MagicNumber          = 100001;                                 // Magic Number del EA
 
 //=======================================================
 // VARIABLES GLOBALES
@@ -61,33 +89,43 @@ input int      MagicNumber         = 100001;                                // M
 
 CTrade trade;
 
-// Handles de indicadores (handleVolMA eliminado — iMA no acepta PRICE_VOLUME)
-int handleATR    = INVALID_HANDLE;
+// Handles de indicadores
+int handleATR    = INVALID_HANDLE;  // ATR en D1 (filtro de rango)
+int handleATR_TF = INVALID_HANDLE;  // ATR en _Period (trailing dinámico)
 int handleEMAF   = INVALID_HANDLE;
 int handleEMAS   = INVALID_HANDLE;
 
-// Estado del ORB — Paso 1
-double ORB_HIGH      = 0.0;
-double ORB_LOW       = 0.0;
-double ORB_SIZE      = 0.0;
-bool   rangeFormed   = false;
+// Estado del ORB
+double   ORB_HIGH     = 0.0;
+double   ORB_LOW      = 0.0;
+double   ORB_SIZE     = 0.0;
+bool     rangeFormed  = false;
 
 // Estado de sesión
-bool     isBreakout    = false;
-int      tradesToday   = 0;
-datetime lastDay       = 0;
+bool     isBreakout   = false;
+int      tradesToday  = 0;
+datetime lastDay      = 0;
 
-// VWAP acumuladores — Paso 3
-double   vwap_cumPV    = 0.0;
-double   vwap_cumVol   = 0.0;
-double   currentVWAP   = 0.0;
-datetime vwapLastBar   = 0;
+// VWAP acumuladores
+double   vwap_cumPV   = 0.0;
+double   vwap_cumVol  = 0.0;
+double   currentVWAP  = 0.0;
+datetime vwapLastBar  = 0;
 
-// Para gestión activa de posiciones — Paso 6
-double entryPrice     = 0.0;
-double slDistance     = 0.0;
-bool   beActivated    = false;
-bool   trailActivated = false;
+// Gestión activa de posición
+double   entryPrice    = 0.0;
+double   slDistance    = 0.0;
+bool     beActivated   = false;
+bool     trailActivated= false;
+
+// Protección de drawdown
+bool     eaDisabled    = false;
+
+//=======================================================
+// NOMBRES DE OBJETOS PARA LÍNEAS ORB
+//=======================================================
+#define ORB_HIGH_LINE  "ORB_HIGH_LINE"
+#define ORB_LOW_LINE   "ORB_LOW_LINE"
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -100,24 +138,23 @@ int OnInit()
       return INIT_FAILED;
      }
 
-   // Crear handles de indicadores (método moderno MQL5 con handles)
-   handleATR  = iATR(_Symbol, PERIOD_D1, ATR_Period);
-   handleEMAF = iMA(_Symbol, _Period, EMA_Fast_Period, 0, MODE_EMA, PRICE_CLOSE);
-   handleEMAS = iMA(_Symbol, _Period, EMA_Slow_Period, 0, MODE_EMA, PRICE_CLOSE);
+   handleATR    = iATR(_Symbol, PERIOD_D1, ATR_Period);
+   handleATR_TF = iATR(_Symbol, _Period,   ATR_Period);
+   handleEMAF   = iMA(_Symbol,  _Period, EMA_Fast_Period, 0, MODE_EMA, PRICE_CLOSE);
+   handleEMAS   = iMA(_Symbol,  _Period, EMA_Slow_Period, 0, MODE_EMA, PRICE_CLOSE);
 
-   if(handleATR == INVALID_HANDLE || handleEMAF == INVALID_HANDLE ||
-      handleEMAS == INVALID_HANDLE)
+   if(handleATR    == INVALID_HANDLE || handleATR_TF == INVALID_HANDLE ||
+      handleEMAF   == INVALID_HANDLE || handleEMAS   == INVALID_HANDLE)
      {
       Print("ERROR: Fallo al crear handles de indicadores. Código: ", GetLastError());
       return INIT_FAILED;
      }
 
-   // Configurar CTrade
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(10);
    trade.SetTypeFilling(ORDER_FILLING_IOC);
 
-   Print("EA ORB5min v2.02 iniciado correctamente en ", _Symbol);
+   Print("EA ORB v2.03 iniciado en ", _Symbol, " TF=", EnumToString(_Period));
    return INIT_SUCCEEDED;
   }
 
@@ -126,14 +163,53 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   if(handleATR  != INVALID_HANDLE) IndicatorRelease(handleATR);
-   if(handleEMAF != INVALID_HANDLE) IndicatorRelease(handleEMAF);
-   if(handleEMAS != INVALID_HANDLE) IndicatorRelease(handleEMAS);
+   if(handleATR    != INVALID_HANDLE) IndicatorRelease(handleATR);
+   if(handleATR_TF != INVALID_HANDLE) IndicatorRelease(handleATR_TF);
+   if(handleEMAF   != INVALID_HANDLE) IndicatorRelease(handleEMAF);
+   if(handleEMAS   != INVALID_HANDLE) IndicatorRelease(handleEMAS);
+   DeleteORBLines();
   }
 
 //+------------------------------------------------------------------+
-//| Calcula SMA del tick volume de las últimas N velas               |
-//| Usa _Period (temporalidad del gráfico) en lugar de PERIOD_M5     |
+//| Dibuja líneas horizontales de ORB_HIGH y ORB_LOW en el gráfico  |
+//+------------------------------------------------------------------+
+void DrawORBLines()
+  {
+   if(!UseOrbLines) return;
+
+   // Línea ORB_HIGH (azul)
+   if(ObjectFind(0, ORB_HIGH_LINE) >= 0)
+      ObjectDelete(0, ORB_HIGH_LINE);
+   ObjectCreate(0, ORB_HIGH_LINE, OBJ_HLINE, 0, 0, ORB_HIGH);
+   ObjectSetInteger(0, ORB_HIGH_LINE, OBJPROP_COLOR,  clrDodgerBlue);
+   ObjectSetInteger(0, ORB_HIGH_LINE, OBJPROP_STYLE,  STYLE_DASH);
+   ObjectSetInteger(0, ORB_HIGH_LINE, OBJPROP_WIDTH,  1);
+   ObjectSetString(0,  ORB_HIGH_LINE, OBJPROP_TOOLTIP, "ORB HIGH: " + DoubleToString(ORB_HIGH, _Digits));
+
+   // Línea ORB_LOW (rojo)
+   if(ObjectFind(0, ORB_LOW_LINE) >= 0)
+      ObjectDelete(0, ORB_LOW_LINE);
+   ObjectCreate(0, ORB_LOW_LINE, OBJ_HLINE, 0, 0, ORB_LOW);
+   ObjectSetInteger(0, ORB_LOW_LINE, OBJPROP_COLOR,  clrTomato);
+   ObjectSetInteger(0, ORB_LOW_LINE, OBJPROP_STYLE,  STYLE_DASH);
+   ObjectSetInteger(0, ORB_LOW_LINE, OBJPROP_WIDTH,  1);
+   ObjectSetString(0,  ORB_LOW_LINE, OBJPROP_TOOLTIP, "ORB LOW: " + DoubleToString(ORB_LOW, _Digits));
+
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
+//| Elimina las líneas ORB del gráfico                               |
+//+------------------------------------------------------------------+
+void DeleteORBLines()
+  {
+   if(ObjectFind(0, ORB_HIGH_LINE) >= 0) ObjectDelete(0, ORB_HIGH_LINE);
+   if(ObjectFind(0, ORB_LOW_LINE)  >= 0) ObjectDelete(0, ORB_LOW_LINE);
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
+//| Calcula SMA del tick volume de las últimas N velas (_Period)     |
 //+------------------------------------------------------------------+
 double GetVolumeMA(int period)
   {
@@ -169,6 +245,52 @@ int TimeToSeconds(datetime t)
 datetime DateOnly(datetime t)
   {
    return (datetime)((t / 86400) * 86400);
+  }
+
+//+------------------------------------------------------------------+
+//| Filtro de noticias: devuelve true si hay que evitar operar       |
+//| Parsea NewsTimes (e.g. "08:30,14:00,20:30") y chequea proximidad |
+//+------------------------------------------------------------------+
+bool IsNewsTime()
+  {
+   if(!UseNewsFilter) return false;
+
+   int nowSec     = TimeToSeconds(TimeCurrent());
+   int avoidSecs  = NewsAvoidMins * 60;
+
+   string times[];
+   int count = StringSplit(NewsTimes, ',', times);
+
+   for(int i = 0; i < count; i++)
+     {
+      string t = times[i];
+      StringTrimLeft(t);
+      StringTrimRight(t);
+      if(StringLen(t) < 5) continue;
+
+      int newsSec = TimeStringToSeconds(t);
+      if(MathAbs(nowSec - newsSec) <= avoidSecs)
+         return true;
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| Filtro de día de semana                                          |
+//+------------------------------------------------------------------+
+bool IsTradingDay()
+  {
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   switch(dt.day_of_week)
+     {
+      case 1: return TradeMonday;
+      case 2: return TradeTuesday;
+      case 3: return TradeWednesday;
+      case 4: return TradeThursday;
+      case 5: return TradeFriday;
+      default: return false; // Sábado (6) y domingo (0)
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -218,6 +340,8 @@ void DailyReset()
    slDistance     = 0.0;
    beActivated    = false;
    trailActivated = false;
+   eaDisabled     = false;   // Reset protección DD al inicio del día
+   DeleteORBLines();
    Print("=== RESET DIARIO === ", TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES));
   }
 
@@ -255,8 +379,8 @@ void UpdateVWAP()
   }
 
 //+------------------------------------------------------------------+
-//| PASO 1 — Formación del rango ORB usando velas de la sesión       |
-//| Usa _Period (temporalidad del gráfico) — compatible con cualquier TF |
+//| PASO 1 — Formación del rango ORB con velas de la sesión         |
+//| Compatible con cualquier temporalidad gracias a _Period          |
 //+------------------------------------------------------------------+
 void TryFormRange()
   {
@@ -275,8 +399,8 @@ void TryFormRange()
    MqlDateTime dtNow;
    TimeToStruct(TimeCurrent(), dtNow);
 
-   // Buscar hasta 50 barras atrás (suficiente para cualquier temporalidad)
-   for(int i = 50; i >= 0; i--)
+   // Buscar hasta 200 barras atrás (cubre M1 con ventanas amplias)
+   for(int i = 200; i >= 0; i--)
      {
       datetime    bTime = iTime(_Symbol, _Period, i);
       int         bSec  = TimeToSeconds(bTime);
@@ -297,12 +421,14 @@ void TryFormRange()
         }
      }
 
-   // Necesitamos al menos 1 vela para formar el rango
-   // (con timeframes altos puede haber menos de 3 velas en la ventana)
-   if(count < 1) return;
+   if(count < 1)
+     {
+      Print("WARNING TryFormRange: No se encontraron velas en la sesión.");
+      return;
+     }
 
-   ORB_HIGH    = hi[0];
-   ORB_LOW     = lo[0];
+   ORB_HIGH = hi[0];
+   ORB_LOW  = lo[0];
    for(int j = 1; j < count; j++)
      {
       if(hi[j] > ORB_HIGH) ORB_HIGH = hi[j];
@@ -311,13 +437,15 @@ void TryFormRange()
    ORB_SIZE    = ORB_HIGH - ORB_LOW;
    rangeFormed = true;
 
+   DrawORBLines();
+
    Print("PASO 1 — ORB formado (", count, " velas): HIGH=", DoubleToString(ORB_HIGH, _Digits),
-         " LOW=",  DoubleToString(ORB_LOW,  _Digits),
+         " LOW=", DoubleToString(ORB_LOW, _Digits),
          " SIZE=", DoubleToString(ORB_SIZE, _Digits));
   }
 
 //+------------------------------------------------------------------+
-//| Calcula el tamaño de lote dinámico                               |
+//| Calcula el tamaño de lote                                        |
 //+------------------------------------------------------------------+
 double CalcLotSize(double entry, double sl)
   {
@@ -359,7 +487,7 @@ double NormalizeLot(double lot)
   }
 
 //+------------------------------------------------------------------+
-//| Verificación de margen disponible antes de abrir orden           |
+//| Verificación de margen disponible                                |
 //+------------------------------------------------------------------+
 bool CheckMarginOK(ENUM_ORDER_TYPE orderType, double lot)
   {
@@ -386,6 +514,37 @@ bool CheckMarginOK(ENUM_ORDER_TYPE orderType, double lot)
   }
 
 //+------------------------------------------------------------------+
+//| Protección de drawdown: cierra todo y desactiva el EA            |
+//+------------------------------------------------------------------+
+void CheckDrawdownProtection()
+  {
+   if(!UseDrawdownProtection || eaDisabled) return;
+
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
+
+   if(balance <= 0.0) return;
+
+   double ddPercent = (balance - equity) / balance * 100.0;
+
+   if(ddPercent >= MaxDDPercent)
+     {
+      Print("⚠️ PROTECCIÓN DD — DD actual=", DoubleToString(ddPercent, 2),
+            "% >= límite=", MaxDDPercent, "%. Cerrando posiciones y desactivando EA.");
+
+      // Cerrar posición abierta con nuestro magic
+      ulong ticket = GetOpenPositionTicket();
+      if(ticket > 0)
+        {
+         if(!trade.PositionClose(ticket))
+            Print("ERROR cerrando posición en DD protection: ", GetLastError());
+        }
+
+      eaDisabled = true;
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| PASO 6 — Gestión activa: Break-Even y Trailing Stop              |
 //+------------------------------------------------------------------+
 void ManageOpenPosition()
@@ -402,6 +561,12 @@ void ManageOpenPosition()
    if(slDistance <= 0.0) return;
    double R = slDistance;
 
+   // Obtener ATR del timeframe actual para trailing dinámico
+   double atrTFBuf[1];
+   double atrTF = R * 0.5; // Fallback: fijo si no hay datos
+   if(CopyBuffer(handleATR_TF, 0, 0, 1, atrTFBuf) >= 1)
+      atrTF = atrTFBuf[0];
+
    if(posType == POSITION_TYPE_BUY)
      {
       double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -413,16 +578,17 @@ void ManageOpenPosition()
          if(newSL > currentSL)
            {
             if(trade.PositionModify(ticket, newSL, currentTP))
-              { beActivated = true; Print("BREAK-EVEN BUY activado. SL=", DoubleToString(newSL, _Digits)); }
+              { beActivated = true; Print("BREAK-EVEN BUY. SL=", DoubleToString(newSL, _Digits)); }
             else
                Print("ERROR BE BUY: ", GetLastError());
            }
         }
 
-      // Trailing Stop: precio >= Entry + 1.5R
+      // Trailing Stop
       if(UseTrailing && price >= entryPrice + 1.5 * R)
         {
-         double newSL = NormalizeDouble(price - 0.5 * R, _Digits);
+         double trailDist = (TrailingMode == TRAILING_ATR) ? atrTF * TrailingATRFactor : 0.5 * R;
+         double newSL     = NormalizeDouble(price - trailDist, _Digits);
          if(newSL > currentSL)
            {
             if(trade.PositionModify(ticket, newSL, currentTP))
@@ -443,16 +609,17 @@ void ManageOpenPosition()
          if(currentSL == 0.0 || newSL < currentSL)
            {
             if(trade.PositionModify(ticket, newSL, currentTP))
-              { beActivated = true; Print("BREAK-EVEN SELL activado. SL=", DoubleToString(newSL, _Digits)); }
+              { beActivated = true; Print("BREAK-EVEN SELL. SL=", DoubleToString(newSL, _Digits)); }
             else
                Print("ERROR BE SELL: ", GetLastError());
            }
         }
 
-      // Trailing Stop: precio <= Entry - 1.5R
+      // Trailing Stop
       if(UseTrailing && price <= entryPrice - 1.5 * R)
         {
-         double newSL = NormalizeDouble(price + 0.5 * R, _Digits);
+         double trailDist = (TrailingMode == TRAILING_ATR) ? atrTF * TrailingATRFactor : 0.5 * R;
+         double newSL     = NormalizeDouble(price + trailDist, _Digits);
          if(currentSL == 0.0 || newSL < currentSL)
            {
             if(trade.PositionModify(ticket, newSL, currentTP))
@@ -492,7 +659,7 @@ void OnTick()
   {
    datetime now = TimeCurrent();
 
-   //--- PASO 8: Detectar nuevo día y hacer reset
+   //--- PASO 8: Reset diario
    datetime today = DateOnly(now);
    if(today != lastDay)
      {
@@ -500,18 +667,25 @@ void OnTick()
       lastDay = today;
      }
 
-   //--- Actualizar VWAP intradía
+   //--- Protección de drawdown (chequeo continuo)
+   CheckDrawdownProtection();
+   if(eaDisabled) return;
+
+   //--- Actualizar VWAP
    UpdateVWAP();
 
    //--- PASO 7: Cierre forzoso por tiempo
    CheckForceClose();
 
-   //--- PASO 6: Gestión activa de posición abierta
+   //--- PASO 6: Gestión activa de posición
    if(HasOpenPosition())
      {
       ManageOpenPosition();
       if(MaxTradesPerDay <= 1) return;
      }
+
+   //--- Filtro: día de semana
+   if(!IsTradingDay()) return;
 
    //--- PASO 1: Formar el rango ORB
    TryFormRange();
@@ -527,25 +701,23 @@ void OnTick()
    double emaFast = emaFBuf[0];
    double emaSlow = emaSBuf[0];
 
-   //--- Volumen: SMA calculada manualmente (usa _Period)
+   //--- Volumen
    double volAvg = GetVolumeMA(Volume_MA_Period);
    long   volNow = iTickVolume(_Symbol, _Period, 0);
 
    //--- PASO 2: Filtro de volatilidad mínima (ATR)
    if(UseFilterATR && ORB_SIZE < atrD1 * ATR_MinFactor) return;
 
-   //--- Variables de precio de la vela actual (necesarias para BIAS y condiciones)
+   //--- Variables de precio de la vela actual
    double closeNow  = iClose(_Symbol, _Period, 0);
    double closePrev = iClose(_Symbol, _Period, 1);
    double openNow   = iOpen(_Symbol,  _Period, 0);
 
    //--- PASO 3: Filtros de sesgo (BIAS)
-   // Cada componente del bias se puede desactivar individualmente
-   // Si el filtro está desactivado, esa condición se considera siempre verdadera
    bool vwapAlcista = UseFilterVWAP ? (closeNow > currentVWAP) : true;
    bool vwapBajista = UseFilterVWAP ? (closeNow < currentVWAP) : true;
-   bool emaAlcista  = UseFilterEMA  ? (emaFast > emaSlow)      : true;
-   bool emaBajista  = UseFilterEMA  ? (emaFast < emaSlow)      : true;
+   bool emaAlcista  = UseFilterEMA  ? (emaFast  > emaSlow)     : true;
+   bool emaBajista  = UseFilterEMA  ? (emaFast  < emaSlow)     : true;
 
    bool biasAlcista = vwapAlcista && emaAlcista;
    bool biasBajista = vwapBajista && emaBajista;
@@ -558,28 +730,33 @@ void OnTick()
    int endOpsSec   = TimeStringToSeconds(EndOps);
    if(nowSec < startOpsSec || nowSec > endOpsSec) return;
 
+   //--- Filtro de spread
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(UseSpreadFilter && (ask - bid) / _Point > MaxSpreadPoints)
+     {
+      // No logear cada tick para no saturar el journal
+      return;
+     }
+
+   //--- Filtro de noticias
+   if(IsNewsTime()) return;
+
    //--- C7: Límite de trades diarios
    if(tradesToday >= MaxTradesPerDay) return;
 
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
    //--- PASO 4 & 5: SEÑAL LARGA (BUY)
-   // Si el filtro está desactivado (false), la condición se omite (true)
-   bool c1L = (closeNow  > ORB_HIGH);                                          // Breakout alcista (siempre requerido)
-   bool c2L = UseFilterC2      ? (closePrev <= ORB_HIGH) : true;               // Vela previa dentro del rango
-   bool c3L = UseFilterVela    ? (closeNow  > openNow)   : true;               // Vela alcista
-   bool c4L = UseFilterVWAP    ? (closeNow  > currentVWAP) : true;             // Precio sobre VWAP
-   bool c5L = UseFilterEMA     ? (emaFast   > emaSlow)   : true;               // EMA rápida > lenta
-   bool c6L = UseFilterATR     ? (ORB_SIZE  >= atrD1 * ATR_MinFactor) : true;  // Rango válido vs ATR
-   bool c9L = UseFilterVolumen ? ((double)volNow > volAvg) : true;             // Volumen alto
+   bool c1L = (closeNow  > ORB_HIGH);
+   bool c2L = UseFilterC2      ? (closePrev <= ORB_HIGH)              : true;
+   bool c3L = UseFilterVela    ? (closeNow  > openNow)                : true;
+   bool c4L = UseFilterVWAP    ? (closeNow  > currentVWAP)            : true;
+   bool c5L = UseFilterEMA     ? (emaFast   > emaSlow)                : true;
+   bool c6L = UseFilterATR     ? (ORB_SIZE  >= atrD1 * ATR_MinFactor) : true;
+   bool c9L = UseFilterVolumen ? ((double)volNow > volAvg)            : true;
 
    if(c1L && c2L && c3L && c4L && c5L && c6L && c9L && biasAlcista)
      {
       double entry = ask;
-      // SL anclado a ORB_LOW (extremo opuesto del rango)
-      // MultiplierSL=1.0 → SL justo en ORB_LOW
-      // MultiplierSL=1.5 → SL 50% del rango más allá de ORB_LOW
       double sl    = NormalizeDouble(ORB_LOW - ORB_SIZE * (MultiplierSL - 1.0) - SL_Buffer_Points * _Point, _Digits);
       double dist  = MathAbs(entry - sl);
       double tp    = NormalizeDouble(entry + dist * MultiplierTP, _Digits);
@@ -588,7 +765,7 @@ void OnTick()
       if(lot <= 0.0) { Print("ERROR: Lote BUY = 0. Cancelado."); return; }
       if(!CheckMarginOK(ORDER_TYPE_BUY, lot)) return;
 
-      Print("PASO 4-5 — SEÑAL BUY | Entry=", entry, " SL=", sl, " TP=", tp, " Lot=", lot);
+      Print("SEÑAL BUY | Entry=", entry, " SL=", sl, " TP=", tp, " Lot=", lot);
 
       if(trade.Buy(lot, _Symbol, entry, sl, tp, "ORB BUY"))
         {
@@ -603,21 +780,17 @@ void OnTick()
      }
 
    //--- PASO 4 & 5: SEÑAL CORTA (SELL)
-   // Si el filtro está desactivado (false), la condición se omite (true)
-   bool c1S = (closeNow  < ORB_LOW);                                           // Breakout bajista (siempre requerido)
-   bool c2S = UseFilterC2      ? (closePrev >= ORB_LOW)   : true;              // Vela previa dentro del rango
-   bool c3S = UseFilterVela    ? (closeNow  < openNow)    : true;              // Vela bajista
-   bool c4S = UseFilterVWAP    ? (closeNow  < currentVWAP) : true;             // Precio bajo VWAP
-   bool c5S = UseFilterEMA     ? (emaFast   < emaSlow)    : true;              // EMA rápida < lenta
-   bool c6S = UseFilterATR     ? (ORB_SIZE  >= atrD1 * ATR_MinFactor) : true;  // Rango válido vs ATR
-   bool c9S = UseFilterVolumen ? ((double)volNow > volAvg) : true;             // Volumen alto
+   bool c1S = (closeNow  < ORB_LOW);
+   bool c2S = UseFilterC2      ? (closePrev >= ORB_LOW)               : true;
+   bool c3S = UseFilterVela    ? (closeNow  < openNow)                : true;
+   bool c4S = UseFilterVWAP    ? (closeNow  < currentVWAP)            : true;
+   bool c5S = UseFilterEMA     ? (emaFast   < emaSlow)                : true;
+   bool c6S = UseFilterATR     ? (ORB_SIZE  >= atrD1 * ATR_MinFactor) : true;
+   bool c9S = UseFilterVolumen ? ((double)volNow > volAvg)            : true;
 
    if(c1S && c2S && c3S && c4S && c5S && c6S && c9S && biasBajista)
      {
       double entry = bid;
-      // SL anclado a ORB_HIGH (extremo opuesto del rango)
-      // MultiplierSL=1.0 → SL justo en ORB_HIGH
-      // MultiplierSL=1.5 → SL 50% del rango más allá de ORB_HIGH
       double sl    = NormalizeDouble(ORB_HIGH + ORB_SIZE * (MultiplierSL - 1.0) + SL_Buffer_Points * _Point, _Digits);
       double dist  = MathAbs(entry - sl);
       double tp    = NormalizeDouble(entry - dist * MultiplierTP, _Digits);
@@ -626,7 +799,7 @@ void OnTick()
       if(lot <= 0.0) { Print("ERROR: Lote SELL = 0. Cancelado."); return; }
       if(!CheckMarginOK(ORDER_TYPE_SELL, lot)) return;
 
-      Print("PASO 4-5 — SEÑAL SELL | Entry=", entry, " SL=", sl, " TP=", tp, " Lot=", lot);
+      Print("SEÑAL SELL | Entry=", entry, " SL=", sl, " TP=", tp, " Lot=", lot);
 
       if(trade.Sell(lot, _Symbol, entry, sl, tp, "ORB SELL"))
         {
